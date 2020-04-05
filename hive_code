@@ -1,0 +1,937 @@
+-- Import required JAR files to run the hive queries.
+
+ADD JAR /opt/cloudera/parcels/CDH/lib/hive/lib/hive-hcatalog-core-1.1.0-cdh5.11.2.jar;
+
+SET hive.exec.max.dynamic.partitions=100000;
+SET hive.exec.max.dynamic.partitions.pernode=100000;
+
+-- Create our workspace for case study and use it for future queries.
+
+create database if not exists anmol_riya_assignment;
+use anmol_riya_assignment;
+
+-- Create the data tables. Here we create external table and skip the headers and blank lines for the data.
+
+create external table if not exists anmol_riya_assignment.data_table(
+VendorID int,
+tpep_pickup_datetime timestamp,
+tpep_dropoff_datetime timestamp,
+Passenger_count int,
+Trip_distance double,
+RateCodeID int,
+Store_and_fwd_flag string,
+PULocationID int,
+DOLocationID int,
+Payment_type int,
+Fare_amount double,
+Extra double,
+MTA_tax double,
+Tip_amount double,
+Tolls_amount double,
+Improvement_surcharge double,
+Total_amount double
+)
+
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+LOCATION '/common_folder/nyc_taxi_data/'
+tblproperties ("skip.header.line.count"="2");
+
+-- Verify wherater our data is successfully imported or not
+
+select * from anmol_riya_assignment.data_table;
+select count(*) from anmol_riya_assignment.data_table;
+
+-- So, there are total 1174568 records.
+
+-- ================================================================================================================================
+
+-- Basic Data Quality Checks
+
+-- ##################################################################################################
+
+-- 1. How many records has each TPEP provider provided?
+
+select VendorID, count(*) 
+from anmol_riya_assignment.data_table
+group by VendorID;
+
+-- VendorID 1 percentage
+select 527385/1174568;
+
+-- VendorID 2 percentage
+select 647183/1174568;
+
+-- VendorID 1 has 527385 records = 44.90%
+-- VendorID 2 has 647183 records = 55.10%
+
+-- #################################################################################################
+
+-- 2.The data provided is for months November and December only.
+--   Check whether the data is consistent, and if not, identify the data quality issues.
+--   Mention all data quality issues in comments.
+
+
+-- Checking for null values present in the data.
+
+select  sum(case when VendorID is null
+                        then 1
+                        else 0 end) as VendorID,
+        sum(case when tpep_pickup_datetime is null
+                        then 1
+                        else 0 end) as tpep_pickup_datetime,
+        sum(case when tpep_dropoff_datetime is null
+                        then 1
+                        else 0 end) as tpep_dropoff_datetime,
+        sum(case when Passenger_count is null
+                        then 1
+                        else 0 end) as Passenger_count,
+        sum(case when Trip_distance is null
+                        then 1
+                        else 0 end) as Trip_distance,
+        sum(case when RateCodeID is null
+                        then 1
+                        else 0 end) as RateCodeID,
+        sum(case when Store_and_fwd_flag is null
+                        then 1
+                        else 0 end) as Store_and_fwd_flag,
+        sum(case when PULocationID is null
+                        then 1
+                        else 0 end) as PULocationID,
+        sum(case when DOLocationID is null
+                        then 1
+                        else 0 end) as DOLocationID,
+        sum(case when Payment_type is null
+                        then 1
+                        else 0 end) as Payment_type,
+        sum(case when Fare_amount is null
+                        then 1
+                        else 0 end) as Fare_amount,
+        sum(case when Extra is null
+                        then 1
+                        else 0 end) as Extra,
+        sum(case when MTA_tax is null
+                        then 1
+                        else 0 end) as MTA_tax,
+        sum(case when Tip_amount  is null
+                        then 1
+                        else 0 end) as Tip_amount,
+        sum(case when Tolls_amount is null
+                        then 1
+                        else 0 end) as Tolls_amount,
+        sum(case when Improvement_surcharge  is null
+                        then 1
+                        else 0 end) as Improvement_surcharge,
+        sum(case when Total_amount is null
+                        then 1
+                        else 0 end) as Total_amount
+from anmol_riya_assignment.data_table;
+
+-- All columns value are 0, it means there are no null values present in this data or in our table.
+
+-- Check consistency of all the columns individually.
+
+-- -----------------------------------------------------------------------------------------------
+
+-- Column 1- VendorID
+
+select max(VendorID) as max_vendorid, min(VendorID) as min_vendorid
+from anmol_riya_assignment.data_table;
+
+-- max_vendorid = 2
+-- min_vendorid = 1
+-- It means we have consistent data for this columns. It seems no issue in this.
+
+-- ---------------------------------------------------------------------------------------------------
+
+-- Column 2- tpep_pickup_datetime
+
+-- We have only November and December data. Any data except these two months are inappropiate.
+
+select count(*) as count_inappropiate_data
+from anmol_riya_assignment.data_table as dt
+where dt.tpep_pickup_datetime < '2017-11-1 00:00:00.0' or dt.tpep_pickup_datetime>='2018-01-01 00:00:00.0';
+
+-- count_inappropiate_data = 14
+-- So, there are 14 records which are out of context.
+
+select VendorID, count(*)
+from anmol_riya_assignment.data_table as dt
+where dt.tpep_pickup_datetime < '2017-11-1 00:00:00.0' or dt.tpep_pickup_datetime>='2018-01-01 00:00:00.0'
+group by VendorID;
+
+-- --------------------------------------------------------------------------------------------------------
+
+-- Column 3- tpep_dropoff_datetime
+
+-- Drop can be happened next day. So, drop date can be 01-jan-2018 but not after it.
+
+select count(*) as count_inappropiate_data
+from anmol_riya_assignment.data_table as dt
+where dt.tpep_dropoff_datetime < '2017-11-1 00:00:00.0' or dt.tpep_dropoff_datetime>='2018-01-02 00:00:00.0';
+
+-- Count_inappropiate_data = 7
+-- So, There are 7 records which are out of context.
+
+select VendorID, count(*) as count_inappropiate_data
+from anmol_riya_assignment.data_table as dt
+where dt.tpep_dropoff_datetime < '2017-11-1 00:00:00.0' or dt.tpep_dropoff_datetime>='2018-01-02 00:00:00.0'
+group by VendorID;
+
+-- VendorID 1 has 1 and VendorID 2 has 6 inappropiate records.
+
+-- Lets see wheather we have any data present which has pick-up and drop date as 01-jan-2018.
+
+select count(*) as count_inappropiate_data
+from anmol_riya_assignment.data_table as dt
+where dt.tpep_pickup_datetime == '2018-01-01 00:00:00.0' and dt.tpep_dropoff_datetime>='2018-01-01 00:00:00.0';
+
+-- count_inappropiate_data = 3
+-- These 3 data are also inappropiate because these data also has pick-up point 01-jan-2018.
+
+-- -------------------------------------------------------------------------------------------------------------------
+
+-- Column 4- Passenger_count
+
+select Passenger_count, count(*)
+from anmol_riya_assignment.data_table as dt
+group by Passenger_count;
+
+-- Passenger_Count      Total_Count
+-- 0	                   6824
+-- 2	                   176872
+-- 4	                   24951
+-- 6	                   33146
+-- 8	                   3
+-- 1	                   827498
+-- 3	                   50693
+-- 5	                   54568
+-- 7	                   12
+-- 9	                   1
+
+select 6824/1174568;
+-- passenger_count 1,2,3,4,5,6 could be order small cars and passenger_count 7,8,9 could be order bigger car.
+-- But passenger_count 0 is a error and can be ignore because it has only 6824 records equal to 0.5% of data.
+
+select vendorid,passenger_count, count(*) 
+from  anmol_riya_assignment.data_table 
+where passenger_count == 0
+group by vendorid,passenger_count
+order by passenger_count,vendorid;
+
+-- VendorID     Passenger_count     Total_Count
+--    1	              0	            6813
+--    2	              0	            11
+
+-- It means vendorID 1 did the mistake in providing the data with respect to passenger_count.
+
+-- ------------------------------------------------------------------------------------------------------------------------------
+
+-- Column 5- Trip_distance
+
+select max(Trip_distance) as max_trip_distance, min(Trip_distance) as min_trip_distance
+from anmol_riya_assignment.data_table;
+
+-- max_trip_distance = 126.41
+-- min_trip_distance = 0
+
+-- minimum trip distance 0 must be a error.
+
+select count(*)
+from anmol_riya_assignment.data_table
+where trip_distance == 0;
+
+select 7402/1174568;
+-- count = 7402 which is 0.6% of data. So, we can ignore this.
+
+-- Lets see which vendor provide this data.
+
+select VendorID, count(*)
+from anmol_riya_assignment.data_table
+where trip_distance == 0
+group by VendorID;
+
+-- VendorID     Total_count
+-- 2	           3185
+-- 1	           4217
+
+-- Both vendorID are almost equally responsible for the error.
+
+-- -------------------------------------------------------------------------------------------------------------------------
+
+-- Column 6- RateCodeID
+
+select max(RateCodeID) as max_ratecodeid, min(RateCodeID) as min_ratecodeid
+from anmol_riya_assignment.data_table;
+
+-- max_ratecodeid = 99
+-- min_ratecodeid = 1
+
+-- As per the dictionary 'ratecodeid' value should be 1-6.
+-- Lets see it more in detail.
+
+select RateCodeID, count(*)
+from anmol_riya_assignment.data_table
+group by RateCodeID
+order by RateCodeID;
+
+-- RateCodeID    Total_count
+-- 1	         1142277
+-- 2	         25338
+-- 3	         2562
+-- 4	         586
+-- 5	         3793
+-- 6	         3
+-- 99	         9
+
+-- RateCodeID 99 has only 9 recodes. We can ignore these 9 records.
+-- Lets see which vendorid provided this data.
+
+select VendorID,RateCodeID, count(*)
+from anmol_riya_assignment.data_table
+where RateCodeID == 99
+group by VendorID, RateCodeID;
+
+-- vendorid	ratecodeid	Total_count
+-- 1	        99	        8
+-- 2	        99	        1
+
+-- VendoriD 1 provided most of the errored data.
+
+-- --------------------------------------------------------------------------------------------------------------------------
+
+-- Column 7- Store_and_fwd_flag
+
+select Store_and_fwd_flag, count(*)
+from anmol_riya_assignment.data_table
+group by Store_and_fwd_flag;
+
+-- 	store_and_fwd_flag	   Total_count
+--             N	           1170617
+--             Y	           3951
+
+-- Values are seems good.
+
+-- -----------------------------------------------------------------------------------------------------------------------------
+
+-- Column 8 and 9- PULocationID and DOLocationID
+
+select max(PULocationID) as max_PULocationID, min(PULocationID) as min_PULocationID
+from anmol_riya_assignment.data_table;
+
+-- max_PULocationID = 265
+-- min_PULocationID = 1
+
+select max(DOLocationID) as max_DOLocationID, min(DOLocationID) as min_DOLocationID
+from anmol_riya_assignment.data_table;
+
+-- max_DOLocationID = 265
+-- min_DOLocationID = 1
+
+-- Both are looking good. No error present.
+-- The range of both the column are 1-265.
+
+-- --------------------------------------------------------------------------------------------------------------------------
+
+-- Column 10- Payment_type
+
+select max(Payment_type) as max_Payment_type, min(Payment_type) as min_Payment_type
+from anmol_riya_assignment.data_table;
+
+-- max_Payment_type = 4
+-- min_Payment_type = 1
+
+-- It seems good as per our data dictionary.
+
+-- ---------------------------------------------------------------------------------------------------------------------------
+
+-- Column 11- Fare_amount
+
+select max(Fare_amount) as max_Fare_amount, min(Fare_amount) as min_Fare_amount
+from anmol_riya_assignment.data_table;
+
+-- max_Fare_amount = 650
+-- min_Fare_amount = -200
+
+-- maximum value seems good but we have negative values also which are inappropiate.
+-- Lets check these values first.
+
+select count(*)
+from anmol_riya_assignment.data_table
+where Fare_amount <= 0;
+
+-- There are 870 records having negative fare_amount. we can ignore them.
+
+select VendorID, count(*)
+from anmol_riya_assignment.data_table
+where Fare_amount <= 0
+group by VendorID;
+
+-- vendorid	   Total_Count
+--     2	       639
+--     1	       231
+
+-- VendorID 2 provided most of the errored data.
+
+select percentile_approx(Fare_amount, array(0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.99)) 
+from  anmol_riya_assignment.data_table;
+
+-- [4,93, 5.95, 6.92, 7.97, 9.39, 10.93, 12.99, 16.81, 24.85, 51.95]
+
+-- Values are seems in the range. Only negative values are wrong.
+-- Lets check higher value once.
+
+select count(*)
+from anmol_riya_assignment.data_table
+where Fare_amount > 500;
+
+-- There are only 1 value is present which is higher(650). We can ignore it also.
+
+-- --------------------------------------------------------------------------------------------------------------------------------
+
+-- Column 12- Extra
+
+select max(Extra) as max_Extra, min(Extra) as min_Extra
+from anmol_riya_assignment.data_table;
+
+-- max_extra = 4.8
+-- min_extra = -10.6
+
+-- As per the dictionary it  only includes the $0.50 and $1 rush hour and overnight charges.
+-- So, we can ignore these values except $0.50, $1 or 0.
+
+select count(*)
+from  anmol_riya_assignment.data_table
+where Extra not in (0,0.5,1);
+
+select 4856/1174568;
+-- There are 4856 records whihc are approx 0.4% of data. We can ignore it.
+
+select VendorID, count(*)
+from  anmol_riya_assignment.data_table
+where Extra not in (0,0.5,1)
+group by VendorID;
+
+--  vendorid	Total_count
+--  2	        3033
+--  1	        1823
+
+-- Both vendor are faulty. But VendorID 2 provided most errored data.
+
+-- ---------------------------------------------------------------------------------------------------------------------------
+
+-- Column 13- MTA_tax
+
+select max(MTA_tax) as max_MTA_tax, min(MTA_tax) as min_MTA_tax
+from anmol_riya_assignment.data_table;
+
+-- max_MTA_tax = 11.4
+-- min_MTA_tax = -0.5
+
+-- As per the data dictionary $0.50 MTA tax that is automatically triggered based on the metered rate in use.
+
+select count(*)
+from  anmol_riya_assignment.data_table
+where MTA_tax != 0 and MTA_tax != 0.5;
+
+-- There are total 548 records which are inappropiate.
+
+select VendorID, count(*)
+from  anmol_riya_assignment.data_table 
+where MTA_tax != 0 and MTA_tax != 0.5
+group by VendorID;
+
+-- VendorID       Total_count
+-- 2              547
+-- 1              1
+
+-- VendorID 2 is at fault.
+
+-- -----------------------------------------------------------------------------------------------------------------------
+
+-- Column 14- Tip_amount
+
+select max(Tip_amount) as max_Tip_amount, min(Tip_amount) as min_Tip_amount
+from anmol_riya_assignment.data_table;
+
+-- max_Tip_amount = 450
+-- min_Tip_amount = -1.16
+
+-- As per the data dictionary this field is populated only when payment typeis of credit card. Lets check this.
+-- It should be positive also.
+
+select count(*)
+from anmol_riya_assignment.data_table
+where payment_type != 1 and tip_amount > 0;
+
+-- Total 17 records are inappropiate. We can easily ignore them.
+
+select VendorID, count(*)
+from anmol_riya_assignment.data_table
+where payment_type != 1 and tip_amount > 0
+group by VendorID;
+
+-- All the 17 records are belongs to vendorID 1. So in this case he is the only who is at fault.
+
+-- ------------------------------------------------------------------------------------------------------------------------------
+
+-- Column 15- Tolls_amount
+
+select max(Tolls_amount) as max_Tolls_amount, min(Tolls_amount) as min_Tolls_amount
+from anmol_riya_assignment.data_table;
+
+-- max_Tolls_amount = 895.89
+-- min_Tolls_amount = -5.76
+
+-- Tolls never be negative. Lets check it.
+
+select count(*)
+from anmol_riya_assignment.data_table
+where Tolls_amount < 0;
+
+-- So there are total 3 negative Tolls_amount value. We can ignore them and must be removed from our dataset.
+
+select VendorID, count(*)
+from anmol_riya_assignment.data_table
+where Tolls_amount < 0
+group by VendorID;
+
+-- All records are belong to vendorID 2.
+
+-- ----------------------------------------------------------------------------------------------------------------------
+
+-- Column 16- Improvement_surcharge
+
+select max(Improvement_surcharge) as max_Improvement_surcharge, min(Improvement_surcharge) as min_Improvement_surcharge
+from anmol_riya_assignment.data_table;
+
+-- max_Improvement_surcharge = 1
+-- min_Improvement_surcharge = -0.3
+
+-- As per the data dictionary, It is $0.30 improvement surcharge assessed trips at the flag drop.
+
+select count(*)
+from anmol_riya_assignment.data_table
+where Improvement_surcharge != 0.3 and Improvement_surcharge != 0;
+
+-- So there are 562 records which shows inappropiate data.
+
+select VendorID, count(*)
+from anmol_riya_assignment.data_table
+where Improvement_surcharge != 0.3 and Improvement_surcharge != 0
+group by VendorID;
+
+-- All 562 records are belong to vendorID 2.
+
+-- ---------------------------------------------------------------------------------------------------------------------------
+
+-- Column 17- Total_amount
+
+select max(Total_amount) as max_Total_amount, min(Total_amount) as min_Total_amount
+from anmol_riya_assignment.data_table;
+
+-- max_Total_amount = 928.19
+-- min_Total_amount = -200.8
+
+-- Lets check for negative value first.
+
+select count(*)
+from anmol_riya_assignment.data_table
+where Total_amount < 0;
+
+-- There are total 558 records which have negative total_Amount.
+
+-- Lets check for the high value.
+
+select count(*)
+from anmol_riya_assignment.data_table
+where Total_amount > 500;
+
+-- There are only 2 vendor whose total_Amout is high.
+
+select VendorID, count(*)
+from anmol_riya_assignment.data_table
+where Total_amount > 500 or total_amount < 0
+group by VendorID;
+
+-- Again vendorID 2 is mostly at fault.
+
+-- ------------------------------------------------------------------------------------------------------------
+
+-- #####################################################################################################################################
+
+-- 3. You might have encountered unusual or erroneous rows in the dataset.
+--    Can you conclude which vendor is doing a bad job in providing the records using different columns of the dataset?
+--    Summarise your conclusions based on every column where these errors are present.
+
+-- Here is the list of each column with respect to there faulty in the data.
+
+--     Column Name                                Faulty(VendorID 1/ VendorID 2)
+--     -----------                                ------------------------------
+--     VendorID                                   None
+--     tpep_pickup_datetime                       2
+--     tpep_dropoff_datetime                      2
+--     Passenger_count                            1
+--     Trip_distance                              Both
+--     RateCodeID                                 1
+--     Store_and_fwd_flag                         None
+--     PULocationID                               None
+--     DOLocationID                               None
+--     Payment_type                               None
+--     Fare_amount                                2
+--     Extra                                      2
+--     MTA_tax                                    2
+--     Tip_amount                                 1
+--     Tolls_amount                               2
+--     Improvement_surcharge                      2
+--     Total_amount                               2
+
+-- Overall VendorID 2 has most errored data in our dataset.
+-- It is doing bad job in providing the data.
+
+-- ########################################################################################################################################
+
+-- Before procedding further we need to create a clean, ORC partitioned table for analysis with remove all the erroneous rows.
+
+use anmol_riya_assignment;
+
+-- Lets partition the table on the basis of months because we have only one year(2017) data.
+-- And we need to answer the question on the basis of months.
+
+create external table if not exists anmol_riya_assignment.mnthPar_data_table(
+tpep_pickup_datetime timestamp,
+tpep_dropoff_datetime timestamp,
+Passenger_count int,
+Trip_distance double,
+RateCodeID int,
+Store_and_fwd_flag string,
+PULocationID int,
+DOLocationID int,
+Payment_type int,
+Fare_amount double,
+Extra double,
+MTA_tax double,
+Tip_amount double,
+Tolls_amount double,
+Improvement_surcharge double,
+Total_amount double
+)
+
+partitioned by (mnth int, VendorID int)
+stored as orc location '/user/anmol1997agarwal_gmail/case_study_taxi_data'
+tblproperties ("orc.compress"="SNAPPY");
+
+-- Inserting Data in partitioned table
+
+insert overwrite table anmol_riya_assignment.mnthPar_data_table
+partition(mnth, VendorID)
+select
+tpep_pickup_datetime,
+tpep_dropoff_datetime,
+Passenger_count,
+Trip_distance,
+RateCodeID,
+Store_and_fwd_flag,
+PULocationID,
+DOLocationID,
+Payment_type,
+Fare_amount,
+Extra,
+MTA_tax,
+Tip_amount,
+Tolls_amount,
+Improvement_surcharge,
+Total_amount,
+month(tpep_pickup_datetime) as mnth,
+VendorID
+from anmol_riya_assignment.data_table as dt
+where (dt.tpep_pickup_datetime >= '2017-11-1 00:00:00.0' and dt.tpep_pickup_datetime < '2018-01-01 00:00:00.0') and
+( dt.tpep_dropoff_datetime >= '2017-11-1 00:00:00.0' and dt.tpep_dropoff_datetime < '2018-01-02 00:00:00.0') and
+(dt.tpep_dropoff_datetime > dt.tpep_pickup_datetime) and
+(passenger_count != 0) and
+(trip_distance > 0) and
+(RateCodeID != 99) and
+(Fare_amount > 0 and Fare_amount <= 500) and
+(Extra in (0,0.5,1)) and
+(MTA_tax in (0,0.5)) and
+((Tip_amount >= 0 and Payment_type = 1) or (Tip_amount = 0 and Payment_type != 1)) and
+(Tolls_amount >= 0) and
+(Improvement_surcharge in (0, 0.3)) and
+(Total_amount < 500 and Total_amount > 0);
+
+-- Lets see total count in our partition data table.
+
+select count(*)
+from anmol_riya_assignment.mnthpar_data_table;
+
+-- Total_rows = 1153585
+
+select 1153585/1174568;
+
+-- We filtered approx 2% of data and got the clean data.
+-- Now we can perform our analysis on this data.
+
+-- #######################################################################################################################################
+
+-- Analysis 1
+
+-- 1. Compare the overall average fare per trip for November and December.
+
+select mnth, round(avg(Fare_amount), 2), round(avg(Total_amount), 2)
+from anmol_riya_assignment.mnthpar_data_table
+group by mnth;
+
+-- Month        Average_Fare_amount          Average_Total_amount
+-- 11           12.91                        16.19
+-- 12           12.7                         15.89
+
+
+-- Averagee fare amount for 'November' month is good as compare to december.
+-- In this case we can say that their are more possibility of extra charges in the month of November.
+
+-- -------------------------------------------------------------------------------------------------------------------
+
+-- 2. Explore the 'number of passengers per trip'.
+--    How many trips are made by each level of 'Passenger_count'?
+--    Do most people travel solo or with other people?
+
+select passenger_count, count(*) as Trip_count
+from anmol_riya_assignment.mnthpar_data_table
+group by passenger_count
+order by Trip_count desc;
+
+--  Passenger_Count         Trip_Count
+--  1                       817018
+--  2                       174782
+--  5                       54037
+--  3                       50183
+--  6                       32882
+--  4                       24680
+--  7                       3
+
+-- It means most of the trip are solo trips.
+-- And people hardly book larger taxi.
+
+select 817018/1174568;
+
+-- Almost 69.5% trips are solo.
+-- So, we can say that most of the people are travel solo.
+
+-- -----------------------------------------------------------------------------------------------------------------------
+
+-- 3. Which is the most preferred mode of payment?
+
+select Payment_type, count(*) as Total_count
+from anmol_riya_assignment.mnthpar_data_table
+group by Payment_type
+order by Total_count desc;
+
+-- Payment_type                       Total_count
+-- 1             Credit Card          779153
+-- 2             Case                 368657
+-- 3             Nocharge             4480
+-- 4             Disput               1295
+
+select 779153/1174568;
+
+-- Most prefferable payment type is from credit card.
+-- Almost 66.3% payments are done by credit card.
+
+-- --------------------------------------------------------------------------------------------------------------------------
+
+-- 4. What is the average tip paid per trip?
+--    Compare the average tip with the 25th, 50th and 75th percentiles
+--    and comment whether the 'average tip' is a representative statistic (of the central tendency) of ?tip amount paid?.
+
+select round(avg(Tip_amount), 2) as Average_tip_amount
+from anmol_riya_assignment.mnthpar_data_table;
+
+-- Average_tip_amount = 1.83
+
+select percentile_approx(Tip_amount, array(0.25,0.40,0.45,0.50,0.60,0.65,0.75))  
+from anmol_riya_assignment.mnthpar_data_table;
+
+--  0.25    0.40    0.45   0.50   0.60   0.65   0.75
+--  0.0     1.0     1.15   1.36   1.76   1.99   2.45
+
+-- Almost 25% values are 0 which play a very important role in percentile values.
+-- Mean percentile is 1.36 and our average tip amount is 1.83 because of the skewness towards the higher value of the data.
+-- So, we can say that Average tip amount is not a representative of the central tendancy.
+-- We can use median instead of mean in this case.
+
+-- -----------------------------------------------------------------------------------------------------------------------------
+
+-- 5. Explore the 'Extra' (charge) variable.
+--    what fraction of total trips have an extra charge is levied?
+
+select Extra, count(*) as Total_trips
+from ( select case when Extra > 0
+                    then 1 
+                    else 0 end  Extra
+       from anmol_riya_assignment.mnthpar_data_table) T
+group by Extra
+order by Total_trips desc;
+
+-- Extra_amount     Total_trip       Percentage
+-- 0                621259           52.8%
+-- 1                532326           47.2%
+
+select 621259/1174568;
+
+-- We have 52.8% trip which don't applied extra charges whereas 47.2% trips are applied extra carges on their trip amount.
+
+-- -------------------------------------------------------------------------------------------------------------------------------
+
+
+
+-- #############################################################################################################################################
+
+
+-- Analysis 2
+
+-- 1. What is the correlation between the number of passengers on any given trip and the tip paid per trip?
+--    Do multiple travellers tip more compared to solo travellers?
+
+select round(corr(Passenger_count, Tip_amount), 5)
+from anmol_riya_assignment.mnthpar_data_table;
+
+
+-- Correlation = -0.00529
+-- Correlation is negative and very small value which shows that passenger_count and tip_amount are not related to each other.
+
+
+-- 0 denoted not solo
+-- 1 denoted solo
+
+select round(corr(solo, Tip_amount), 5) 
+from (select case when passenger_count = 1
+                  then 1 
+                  else 0 end solo, Tip_amount 
+      from anmol_riya_assignment.mnthpar_data_table) T;
+
+      
+-- Correlation = 0.00618
+-- Their is still very low correlation between solo vs multiple rider trips.
+
+
+select solo, round(avg(Tip_amount), 4) 
+from (select case when passenger_count = 1 
+                  then 1 
+                  else 0 end solo, Tip_amount 
+      from anmol_riya_assignment.mnthpar_data_table) T
+group by solo;
+
+-- Solo     Average
+-- 0        1.8023
+-- 1        1.8354
+
+-- Average of both cases are almost same.
+
+-- ----------------------------------------------------------------------------------------------------------------------------
+
+-- 2. Segregate the data into five segments of 'tip paid': [0-5), [5-10), [10-15) , [15-20) and >=20.
+--    Calculate the percentage share of each bucket (i.e. the fraction of trips falling in each bucket).
+
+select Tip_range, round((count(*) * 100 / 1174568), 5) Total_trip_per
+from (select case when (Tip_amount >= 0 and Tip_amount < 5)   then '[0-5)' 
+                  when (Tip_amount >= 5 and Tip_amount < 10)  then '[5-10)' 
+                  when (Tip_amount >= 10 and Tip_amount < 15) then '[10-15)'
+                  when (Tip_amount >= 15 and Tip_amount < 20) then '[15-20)'
+                  when (Tip_amount >= 20)                     then '>=20' end Tip_range
+      from anmol_riya_assignment.mnthpar_data_table) T 
+group by Tip_range
+order by Total_trip desc;
+
+-- Tip_range                     Total_trip_per
+-- [0-5)                         90.75303
+-- [5-10)                        5.53727
+-- [10-15)                       1.65286
+-- [15-20)                       0.1839
+-- >=20                          0.0865
+
+-- [0-5) bucket has almost 91% fraction of databut we saw that 25% values are 0 which include in this bucket,
+-- [5-10) bucket has almost 5.5% fraction of data and rest bucket has only 2% of data.
+
+-- ---------------------------------------------------------------------------------------------------------------------------------------------
+
+-- 3. Which month has a greater average 'speed' - November or December?
+--    Note that the variable 'speed' will have to be derived from other metrics.
+
+-- We can calculate spped by dividing distance from time.
+-- But we have time of pickup and drop in timestamp and if we subtract them, we got result in seconds.
+-- So we divide it by 3600 to get the value in hours.
+-- And distance is in miles so as resultant of speed we will get the result in miles/hours.
+
+select mnth, round(avg( Trip_distance / (( unix_timestamp(tpep_dropoff_datetime) - unix_timestamp(tpep_pickup_datetime) ) / 3600)), 2) as Average_speed
+from anmol_riya_assignment.mnthpar_data_table
+group by mnth
+order by Average_speed desc;
+
+-- Month               Average speed
+-- 12-December         11.07 miles/hour
+-- 11-November         10.97 miles/hour
+
+-- Taxi are running faster in december month according to our data.
+
+-- -------------------------------------------------------------------------------------------------------------------------------
+
+-- 4. Analyse the average speed of the most happening days of the year,
+--    i.e. 31st December (New year's eve) and 25th December (Christmas) and compare it with the overall average.
+
+-- Any trip which start on 25th december or 31st december are considered in this case.
+
+-- 1 denoted holiday(25th or 31st december)
+-- 0 denoted rest days
+
+select holiday, round(avg(speed), 2) as average_speed
+from (select case when ((tpep_pickup_datetime>='2017-12-25 00:00:00.0' and tpep_pickup_datetime<'2017-12-26 00:00:00.0') or 
+                        (tpep_pickup_datetime>='2017-12-31 00:00:00.0' and tpep_pickup_datetime<'2018-01-01 00:00:00.0'))
+                  then 1 
+                  else 0 end holiday, Trip_distance / (( unix_timestamp(tpep_dropoff_datetime) - unix_timestamp(tpep_pickup_datetime) ) / 3600) as speed
+      from anmol_riya_assignment.mnthpar_data_table) T
+group by holiday
+order by average_speed desc;
+
+-- Holiday      Average Speed
+-- 1            14.01 miles/hour
+-- 0            10.95 miles/hour
+
+
+-- lets compare overall average spped
+
+select round(avg(Trip_distance / ((unix_timestamp(tpep_dropoff_datetime) - unix_timestamp(tpep_pickup_datetime) ) / 3600)),2) as avg_speed
+from anmol_riya_assignment.mnthpar_data_table;
+
+-- Average Speed = 11.02 miles/hour
+
+-- So avg_spped on holidays is slightly faster than overall avg_spped.
+
+-- lets compare both the days individually.
+
+-- 0 denoted rest days
+-- 1 denoted Christmas
+-- 2 denoted New Year
+
+
+select holiday_type, round(avg( trip_distance / ((unix_timestamp(tpep_dropoff_datetime) - unix_timestamp(tpep_pickup_datetime) ) / 3600)), 2) avg_speed
+from ( select trip_distance, tpep_dropoff_datetime, tpep_pickup_datetime,
+              case when ((tpep_pickup_datetime>='2017-12-25 00:00:00.0' and tpep_pickup_datetime<'2017-12-26 00:00:00.0')) then 1
+                   when ((tpep_pickup_datetime>='2017-12-31 00:00:00.0' and tpep_pickup_datetime<'2018-01-01 00:00:00.0')  ) then 2 
+                   else 0 end holiday_type
+       from anmol_riya_assignment.mnthpar_data_table) T
+group by holiday_type;
+
+-- Holiday_type     Average_speed
+-- Chritmas        15.25 miles/hour
+-- New Year        13.24 miles/hour
+-- Rest days       10.95 miles/hour
+
+
+-- It means taxies are running faster on Chritsmas compare to new year and rest of the day.
+-- But both of them (Chritmas and New year) are faster than rest of the day.
+
+
+-- ----------------------------------------------------------------------------------------------------------------------------------------
+
+-- #####################################################################################################################################################
+
